@@ -134,6 +134,13 @@ class _Options {
   }
 }
 
+
+/// Satır sonlarını LF'e indirger (flutter create Windows'ta CRLF üretir).
+String _normalize(String text) => text.replaceAll(
+      String.fromCharCode(13) + String.fromCharCode(10),
+      String.fromCharCode(10),
+    );
+
 class UsageException implements Exception {
   UsageException(this.message);
 
