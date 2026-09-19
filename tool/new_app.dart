@@ -4,8 +4,8 @@
 //   dart run tool/new_app.dart \
 //     --name "Uygulama Adı" --package com.crazypenguin.uygulama \
 //     --ads yes --pro yes --data local \
-//     [--source-icon brand/icon_1024.png] [--kit-ref core-v1.0.0]
-//     [--kit-path D:/repositories/napp-core]
+//     [--source-icon assets/brand/example_source_icon.png] \
+//     [--kit-ref core-v1.0.0] [--kit-path D:/repositories/napp-core] [--force]
 //
 // Idempotent çalışır; var olan bir dosyanın üzerine yazmadan önce sorar
 // (--force ile sorulmadan yazar).
@@ -13,6 +13,12 @@ import 'dart:io';
 
 const _testAdmobAppIdAndroid = 'ca-app-pub-3940256099942544~3347511713';
 const _testAdmobAppIdIos = 'ca-app-pub-3940256099942544~1458002511';
+
+/// Satır sonlarını LF'e indirger (flutter create Windows'ta CRLF üretir).
+String _normalize(String text) => text.replaceAll(
+      String.fromCharCode(13) + String.fromCharCode(10),
+      String.fromCharCode(10),
+    );
 
 Future<void> main(List<String> args) async {
   final options = _Options.parse(args);
@@ -118,8 +124,7 @@ class _Options {
         args.contains('--source-icon') ? value('--source-icon') : null;
     final kitRef =
         args.contains('--kit-ref') ? value('--kit-ref') : 'core-v1.0.0';
-    final kitPath =
-        args.contains('--kit-path') ? value('--kit-path') : null;
+    final kitPath = args.contains('--kit-path') ? value('--kit-path') : null;
     final force = args.contains('--force');
 
     if (!RegExp(r'^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$').hasMatch(packageName)) {
@@ -138,13 +143,6 @@ class _Options {
     );
   }
 }
-
-
-/// Satır sonlarını LF'e indirger (flutter create Windows'ta CRLF üretir).
-String _normalize(String text) => text.replaceAll(
-      String.fromCharCode(13) + String.fromCharCode(10),
-      String.fromCharCode(10),
-    );
 
 class UsageException implements Exception {
   UsageException(this.message);
@@ -177,9 +175,8 @@ void _writeFile(String path, String content, {required bool force}) {
 
 Future<void> _run(String executable, List<String> arguments) async {
   // Windows'ta Process.start PATH uzantılarını çözümlemez.
-  final exe = Platform.isWindows && executable == 'flutter'
-      ? 'flutter.bat'
-      : executable;
+  final exe =
+      Platform.isWindows && executable == 'flutter' ? 'flutter.bat' : executable;
   _section('$exe ${arguments.first} …');
   final process = await Process.start(
     exe,
@@ -188,7 +185,7 @@ Future<void> _run(String executable, List<String> arguments) async {
   );
   final code = await process.exitCode;
   if (code != 0) {
-    throw StateError('$executable ${arguments.join(' ')} => exit $code');
+    throw StateError('$exe ${arguments.join(' ')} => exit $code');
   }
 }
 
@@ -222,8 +219,7 @@ void _androidManifest(_Options o) {
   File(path).writeAsStringSync(manifest);
   stdout.writeln('güncellendi: $path');
 
-  const rules =
-      'android/app/src/main/res/xml/data_extraction_rules.xml';
+  const rules = 'android/app/src/main/res/xml/data_extraction_rules.xml';
   _writeFile(
     rules,
     '<?xml version="1.0" encoding="utf-8"?>\n'
@@ -281,10 +277,11 @@ void _gradleRelease(_Options o) {
   );
 
   if (o.ads) {
+    // Manifest'teki ${admobAppId} yer tutucusu buradan çözülür.
     gradle = gradle.replaceFirst(
-      'signingConfig = signingConfigs.getByName("debug")',
-      'manifestPlaceholders["admobAppId"] = admobAppId\n'
-      '            signingConfig = signingConfigs.getByName("debug")',
+      'defaultConfig {',
+      'defaultConfig {\n'
+      '        manifestPlaceholders["admobAppId"] = admobAppId',
     );
   }
 
@@ -328,15 +325,13 @@ void _iosPlist(_Options o) {
 
 void _pubspec(_Options o) {
   final path = 'pubspec.yaml';
-  var pubspec = File(path).readAsStringSync();
-  const nl = '\n';
-
+  var pubspec = _normalize(File(path).readAsStringSync());
   String dep(String pkg, String ref) {
-    return '  ${pkg}:' + nl
-        + '    git:' + nl
-        + '      url: https://github.com/XPersPective/napp_kit.git' + nl
-        + '      path: packages/${pkg}' + nl
-        + '      ref: ${ref}' + nl;
+    return '  $pkg:\n'
+        '    git:\n'
+        '      url: https://github.com/XPersPective/napp_kit.git\n'
+        '      path: packages/$pkg\n'
+        '      ref: $ref\n';
   }
 
   final deps = StringBuffer(dep('napp_core', o.kitRef));
@@ -348,22 +343,24 @@ void _pubspec(_Options o) {
   }
   final flutterBlock = ['dependencies:', '  flutter:', '    sdk: flutter', '']
       .join('\n');
-  final localizationsDep = '  flutter_localizations:'
-      + '\n    sdk: flutter\n';
-  pubspec = pubspec.replaceFirst(
-      flutterBlock, flutterBlock + deps.toString() + localizationsDep);
+  final localizationsDep = '  flutter_localizations:\n'
+      '    sdk: flutter\n';
+  if (!pubspec.contains('napp_core:')) {
+    pubspec = pubspec.replaceFirst(
+        flutterBlock, flutterBlock + deps.toString() + localizationsDep);
+  }
 
-  // Lokal gelistirme: --kit-path verilirse bagimliliklar yerel kopyaya
-  // zorlanir (uretimde kullanilmaz).
+  // Lokal geliştirme: --kit-path verilirse bağımlılıklar yerel kopyaya
+  // zorlanır (üretimde kullanılmaz).
   if (o.kitPath != null && !pubspec.contains('dependency_overrides:')) {
-    final overrides = StringBuffer('dependency_overrides:' + nl);
+    final overrides = StringBuffer('dependency_overrides:\n');
     for (final pkg in [
       'napp_core',
       if (o.pro) 'napp_pro',
       if (o.ads) 'napp_ads',
     ]) {
-      overrides.write('  ${pkg}:' + nl);
-      overrides.write('    path: ${o.kitPath}/packages/${pkg}' + nl);
+      overrides.write('  $pkg:\n');
+      overrides.write('    path: ${o.kitPath}/packages/$pkg\n');
     }
     pubspec = pubspec.replaceFirst(
       'dev_dependencies:',
@@ -374,14 +371,44 @@ void _pubspec(_Options o) {
   File(path).writeAsStringSync(pubspec);
   stdout.writeln('güncellendi: $path');
 }
+
 String _refFor(String coreRef, String package) =>
     coreRef.replaceFirst('core-', '$package-');
 
 void _writeExampleFiles(_Options o) {
-  _writeFile('lib/main.dart', _mainTemplate(o), force: o.force);
+  final mainTemplate =
+      File('tool/templates/main.dart.template').readAsStringSync();
+  final testTemplate =
+      File('tool/templates/app_test.dart.template').readAsStringSync();
+  final substitutions = <String, String>{
+    '@@APP_NAME@@': o.name,
+    '@@PACKAGE_NAME@@': o.packageName,
+    '@@PROJECT_NAME@@': o.projectName,
+    '@@PRODUCT_ID@@': o.productId,
+  };
+  String render(String source) {
+    var out = source;
+    substitutions.forEach((token, value) => out = out.replaceAll(token, value));
+    // Koşullu bloklar: seçenek kapalıysa satırları çıkar.
+    for (final flag in ['pro', 'ads']) {
+      final enabled = flag == 'pro' ? o.pro : o.ads;
+      final open = '@@IF_${flag.toUpperCase()}@@';
+      final close = '@@END@@';
+      while (out.contains(open)) {
+        final start = out.indexOf(open);
+        final end = out.indexOf(close, start);
+        if (end < 0) break;
+        final inner = out.substring(start + open.length, end);
+        out = out.replaceRange(start, end + close.length, enabled ? inner : '');
+      }
+    }
+    return out;
+  }
+
+  _writeFile('lib/main.dart', render(mainTemplate), force: o.force);
   final staleTest = File('test/widget_test.dart');
   if (staleTest.existsSync()) staleTest.deleteSync();
-  _writeFile('test/app_test.dart', _testTemplate(o), force: o.force);
+  _writeFile('test/app_test.dart', render(testTemplate), force: o.force);
   _writeFile(
     '.env.example',
     '# Kullanılan gizli değerler dart-define ile derlemede verilir (1.2).\n',
@@ -396,116 +423,6 @@ void _writeExampleFiles(_Options o) {
     'admobAppId=ca-app-pub-XXXX~XXXX\n',
     force: o.force,
   );
-  _writeFile(
-    'README.md',
-    '# ${o.name}\n'
-    '\n'
-    'napp_app_template şablonundan üretildi: ads=${o.ads ? 'EVET' : 'HAYIR'}, '
-    'pro=${o.pro ? 'EVET' : 'HAYIR'}, veri=${o.dataLabel}.\n'
-    '\n'
-    'Kural kaynağı: ORTAK_UYGULAMA_STANDARDI.md. Proje durumu: PROJECT_BRAIN.md.\n'
-    'Lisans: GPL-3.0. Uygulama adı ve logosu markadır; lisansa dahil değildir.\n',
-    force: o.force,
-  );
-}
-
-String _mainTemplate(_Options o) {
-  final proImport =
-      o.pro ? "import 'package:napp_pro/napp_pro.dart';\n" : '';
-  final adsImport = o.ads ? "import 'package:napp_ads/napp_ads.dart';\n" : '';
-  return '''
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-
-import 'package:napp_core/napp_core.dart';
-$proImport$adsImport
-// Gizli değerler KODA YAZILMAZ; derlemede --dart-define ile verilir (1.2).
-const contactEmail = String.fromEnvironment('CONTACT_EMAIL');
-const privacyUrl = String.fromEnvironment('PRIVACY_URL',
-    defaultValue: 'https://example.com/privacy');
-const sourceUrl = String.fromEnvironment('SOURCE_URL',
-    defaultValue: 'https://github.com/XPersPective/${o.projectName}');
-const otherAppsUrl = String.fromEnvironment('OTHER_APPS_URL');
-
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  final store = await SettingsStore.load();
-  final themeModeController = ThemeModeController(store: store)..load();
-  final identity = AppIdentity(
-    appName: '${o.name}',
-    packageName: '${o.packageName}',
-    sourceUrl: sourceUrl,
-    privacyPolicyUrl: privacyUrl,
-    contactEmail: contactEmail.isEmpty ? 'hello@example.com' : contactEmail,
-    otherAppsUrl: otherAppsUrl.isEmpty ? null : otherAppsUrl,
-    sloganKey: 'app.slogan',
-  );
-  WidgetsBinding.instance.addObserver(SettingsLifecycleObserver(store));
-  runApp(NappApp(identity: identity, themeModeController: themeModeController));
-}
-
-/// Uygulama iskeleti; uygulamanıza özel ekranları buraya kurun.
-class NappApp extends StatelessWidget {
-  const NappApp({
-    super.key,
-    required this.identity,
-    required this.themeModeController,
-  });
-
-  final AppIdentity identity;
-  final ThemeModeController themeModeController;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: themeModeController,
-      builder: (context, _) => MaterialApp(
-        title: identity.appName,
-        theme: AppTheme.light(brandColor: identity.brandColor),
-        darkTheme: AppTheme.dark(brandColor: identity.brandColor),
-        themeMode: themeModeController.mode,
-        localizationsDelegates: [
-          NappLocalizationsDelegate(NappTranslations({})),
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        supportedLocales: const [Locale('tr'), Locale('en')],
-        home: HomePage(identity: identity),
-      ),
-    );
-  }
-}
-
-class HomePage extends StatelessWidget {
-  const HomePage({super.key, required this.identity});
-
-  final AppIdentity identity;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = NappLocalizations.of(context);
-    return Scaffold(
-      appBar: AppBar(title: Text(identity.appName)),
-      body: Center(child: Text(l10n.aboutTitle)),
-    );
-  }
-}
-''';
-}
-
-String _testTemplate(_Options o) {
-  return [
-    "import 'package:flutter_test/flutter_test.dart';",
-    '',
-    "import 'package:${o.projectName}/main.dart';",
-    '',
-    'void main() {',
-    "  test('kurulum tamam', () {",
-    "    expect('${o.productId}'.endsWith('_pro_lifetime'), isTrue);",
-    '  });',
-    '}',
-  ].join('\n');
 }
 
 void _projectBrain(_Options o) {
@@ -513,8 +430,7 @@ void _projectBrain(_Options o) {
   final proRow = o.pro
       ? 'bölüm 5.1 uygulanır; ürün kimliği: ${o.productId}'
       : 'satın alma paketi eklenmez';
-  final dataRow =
-      o.dataCloud ? 'bölüm 6.2 uygulanır' : 'bölüm 6.1 uygulanır';
+  final dataRow = o.dataCloud ? 'bölüm 6.2 uygulanır' : 'bölüm 6.1 uygulanır';
   _writeFile(
     'PROJECT_BRAIN.md',
     '# PROJECT BRAIN — ${o.name}\n'
@@ -558,6 +474,6 @@ void _checkStandardDoc() {
   if (File(source).existsSync()) {
     stdout.writeln('mevcut: $source');
   } else {
-    stdout.writeln('EKSİK: $source — şabondan kopyalanmalı');
+    stdout.writeln('EKSİK: $source — şablondan kopyalanmalı');
   }
 }
