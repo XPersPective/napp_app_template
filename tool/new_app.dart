@@ -493,7 +493,7 @@ class HomePage extends StatelessWidget {
 
 String _testTemplate(_Options o) {
   return [
-    'import '\\package:flutter_test/flutter_test.dart';',
+    "import 'package:flutter_test/flutter_test.dart';",
     '',
     "import 'package:${o.projectName}/main.dart';",
     '',
