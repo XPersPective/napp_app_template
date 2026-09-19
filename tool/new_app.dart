@@ -283,7 +283,7 @@ void _gradleRelease(_Options o) {
   if (o.ads) {
     gradle = gradle.replaceFirst(
       'signingConfig = signingConfigs.getByName("debug")',
-      'resValue("string", "admobAppId", admobAppId)\n'
+      'manifestPlaceholders["admobAppId"] = admobAppId\n'
       '            signingConfig = signingConfigs.getByName("debug")',
     );
   }
