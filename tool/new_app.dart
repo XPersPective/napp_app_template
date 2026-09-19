@@ -52,7 +52,12 @@ Future<void> main(List<String> args) async {
   }
 
   await _run('flutter', ['pub', 'get']);
-  await _run('flutter', ['analyze']);
+  await _run('flutter', [
+    'analyze',
+    // Lokal kit-path modunda dependency_overrides kaynaklı bilgi notları
+    // kabul edilir; üretimde --fatal-infos ile katı denetlenir.
+    if (options.kitPath != null) '--no-fatal-infos',
+  ]);
   await _run('flutter', ['test']);
   await _run('flutter', ['build', 'apk', '--release']);
 
@@ -453,7 +458,7 @@ class NappApp extends StatelessWidget {
         theme: AppTheme.light(brandColor: identity.brandColor),
         darkTheme: AppTheme.dark(brandColor: identity.brandColor),
         themeMode: themeModeController.mode,
-        localizationsDelegates: const [
+        localizationsDelegates: [
           NappLocalizationsDelegate(NappTranslations({})),
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
