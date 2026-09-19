@@ -90,7 +90,7 @@ class NappApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([themeModeController@@IF_PRO@@, proController@@END@@@@IF_ADS@@, policy@@END@@]),
+      animation: Listenable.merge([themeModeController@@IF_PRO@@, proController@@END@@]),
       builder: (context, _) => MaterialApp(
         title: identity.appName,
         theme: AppTheme.light(brandColor: identity.brandColor),
