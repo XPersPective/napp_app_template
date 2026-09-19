@@ -348,7 +348,10 @@ void _pubspec(_Options o) {
   }
   final flutterBlock = ['dependencies:', '  flutter:', '    sdk: flutter', '']
       .join('\n');
-  pubspec = pubspec.replaceFirst(flutterBlock, flutterBlock + deps.toString());
+  final localizationsDep = '  flutter_localizations:'
+      + '\n    sdk: flutter\n';
+  pubspec = pubspec.replaceFirst(
+      flutterBlock, flutterBlock + deps.toString() + localizationsDep);
 
   // Lokal gelistirme: --kit-path verilirse bagimliliklar yerel kopyaya
   // zorlanir (uretimde kullanilmaz).
