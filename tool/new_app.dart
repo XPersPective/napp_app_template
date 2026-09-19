@@ -250,8 +250,7 @@ void _gradleRelease(_Options o) {
   if (props.existsSync() &&
       !props.readAsStringSync().contains('kotlin.incremental')) {
     props.writeAsStringSync(
-        props.readAsStringSync() + 'kotlin.incremental=false
-');
+        props.readAsStringSync() + 'kotlin.incremental=false\n');
   }
   final path = 'android/app/build.gradle.kts';
   var gradle = _normalize(File(path).readAsStringSync());
