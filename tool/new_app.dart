@@ -376,6 +376,9 @@ String _refFor(String coreRef, String package) =>
 
 void _writeExampleFiles(_Options o) {
   _writeFile('lib/main.dart', _mainTemplate(o), force: o.force);
+  final staleTest = File('test/widget_test.dart');
+  if (staleTest.existsSync()) staleTest.deleteSync();
+  _writeFile('test/app_test.dart', _testTemplate(o), force: o.force);
   _writeFile(
     '.env.example',
     '# Kullanılan gizli değerler dart-define ile derlemede verilir (1.2).\n',
@@ -486,6 +489,20 @@ class HomePage extends StatelessWidget {
   }
 }
 ''';
+}
+
+String _testTemplate(_Options o) {
+  return [
+    'import '\\package:flutter_test/flutter_test.dart';',
+    '',
+    "import 'package:${o.projectName}/main.dart';",
+    '',
+    'void main() {',
+    "  test('kurulum tamam', () {",
+    "    expect('${o.productId}'.endsWith('_pro_lifetime'), isTrue);",
+    '  });',
+    '}',
+  ].join('\n');
 }
 
 void _projectBrain(_Options o) {
