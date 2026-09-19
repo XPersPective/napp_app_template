@@ -352,7 +352,7 @@ void _pubspec(_Options o) {
 
   // Lokal gelistirme: --kit-path verilirse bagimliliklar yerel kopyaya
   // zorlanir (uretimde kullanilmaz).
-  if (o.kitPath != null) {
+  if (o.kitPath != null && !pubspec.contains('dependency_overrides:')) {
     final overrides = StringBuffer('dependency_overrides:' + nl);
     for (final pkg in [
       'napp_core',
