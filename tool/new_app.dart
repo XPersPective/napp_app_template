@@ -324,17 +324,14 @@ void _iosPlist(_Options o) {
 void _pubspec(_Options o) {
   final path = 'pubspec.yaml';
   var pubspec = File(path).readAsStringSync();
+  const nl = '\n';
+
   String dep(String pkg, String ref) {
-    return '  $pkg:
-'
-        '    git:
-'
-        '      url: https://github.com/XPersPective/napp_kit.git
-'
-        '      path: packages/$pkg
-'
-        '      ref: $ref
-';
+    return '  ${pkg}:' + nl
+        + '    git:' + nl
+        + '      url: https://github.com/XPersPective/napp_kit.git' + nl
+        + '      path: packages/${pkg}' + nl
+        + '      ref: ${ref}' + nl;
   }
 
   final deps = StringBuffer(dep('napp_core', o.kitRef));
@@ -344,32 +341,31 @@ void _pubspec(_Options o) {
   if (o.ads) {
     deps.write(dep('napp_ads', _refFor(o.kitRef, 'ads')));
   }
-  final flutterBlock = 'dependencies:
-'
-      '  flutter:
-'
-      '    sdk: flutter
-';
+  final flutterBlock = ['dependencies:', '  flutter:', '    sdk: flutter', '']
+      .join('\n');
   pubspec = pubspec.replaceFirst(flutterBlock, flutterBlock + deps.toString());
 
-  // Lokal geliştirme: --kit-path verilirse bağımlılıklar yerel kopyaya
-  // zorlanır (üretimde kullanılmaz).
+  // Lokal gelistirme: --kit-path verilirse bagimliliklar yerel kopyaya
+  // zorlanir (uretimde kullanilmaz).
   if (o.kitPath != null) {
-    final overrides = StringBuffer('dependency_overrides:
-');
-    for (final pkg in ['napp_core', if (o.pro) 'napp_pro', if (o.ads) 'napp_ads']) {
-      overrides.write('  $pkg:
-');
-      overrides.write('    path: ${o.kitPath}/packages/$pkg
-');
+    final overrides = StringBuffer('dependency_overrides:' + nl);
+    for (final pkg in [
+      'napp_core',
+      if (o.pro) 'napp_pro',
+      if (o.ads) 'napp_ads',
+    ]) {
+      overrides.write('  ${pkg}:' + nl);
+      overrides.write('    path: ${o.kitPath}/packages/${pkg}' + nl);
     }
-    pubspec = pubspec.replaceFirst('dev_dependencies:', '${overrides}dev_dependencies:');
+    pubspec = pubspec.replaceFirst(
+      'dev_dependencies:',
+      overrides.toString() + 'dev_dependencies:',
+    );
   }
 
   File(path).writeAsStringSync(pubspec);
   stdout.writeln('güncellendi: $path');
 }
-
 String _refFor(String coreRef, String package) =>
     coreRef.replaceFirst('core-', '$package-');
 
