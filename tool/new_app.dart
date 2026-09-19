@@ -244,6 +244,15 @@ void _androidManifest(_Options o) {
 }
 
 void _gradleRelease(_Options o) {
+  // Windows'ta Kotlin daemon incremental cache dosyalarini kilitliyor.
+  final propsPath = 'android/gradle.properties';
+  final props = File(propsPath);
+  if (props.existsSync() &&
+      !props.readAsStringSync().contains('kotlin.incremental')) {
+    props.writeAsStringSync(
+        props.readAsStringSync() + 'kotlin.incremental=false
+');
+  }
   final path = 'android/app/build.gradle.kts';
   var gradle = _normalize(File(path).readAsStringSync());
 
