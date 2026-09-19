@@ -323,17 +323,18 @@ void _iosPlist(_Options o) {
 
 void _pubspec(_Options o) {
   final path = 'pubspec.yaml';
-  var pubspec = _normalize(File(path).readAsStringSync());
+  var pubspec = File(path).readAsStringSync();
   String dep(String pkg, String ref) {
-    if (o.kitPath != null) {
-      return '  $pkg:\n'
-          '    path: ${o.kitPath}/packages/$pkg\n';
-    }
-    return '  $pkg:\n'
-        '    git:\n'
-        '      url: https://github.com/XPersPective/napp_kit.git\n'
-        '      path: packages/$pkg\n'
-        '      ref: $ref\n';
+    return '  $pkg:
+'
+        '    git:
+'
+        '      url: https://github.com/XPersPective/napp_kit.git
+'
+        '      path: packages/$pkg
+'
+        '      ref: $ref
+';
   }
 
   final deps = StringBuffer(dep('napp_core', o.kitRef));
@@ -343,10 +344,28 @@ void _pubspec(_Options o) {
   if (o.ads) {
     deps.write(dep('napp_ads', _refFor(o.kitRef, 'ads')));
   }
-  final flutterBlock = 'dependencies:\n'
-      '  flutter:\n'
-      '    sdk: flutter\n';
+  final flutterBlock = 'dependencies:
+'
+      '  flutter:
+'
+      '    sdk: flutter
+';
   pubspec = pubspec.replaceFirst(flutterBlock, flutterBlock + deps.toString());
+
+  // Lokal geliştirme: --kit-path verilirse bağımlılıklar yerel kopyaya
+  // zorlanır (üretimde kullanılmaz).
+  if (o.kitPath != null) {
+    final overrides = StringBuffer('dependency_overrides:
+');
+    for (final pkg in ['napp_core', if (o.pro) 'napp_pro', if (o.ads) 'napp_ads']) {
+      overrides.write('  $pkg:
+');
+      overrides.write('    path: ${o.kitPath}/packages/$pkg
+');
+    }
+    pubspec = pubspec.replaceFirst('dev_dependencies:', '${overrides}dev_dependencies:');
+  }
+
   File(path).writeAsStringSync(pubspec);
   stdout.writeln('güncellendi: $path');
 }
