@@ -164,9 +164,13 @@ void _writeFile(String path, String content, {required bool force}) {
 }
 
 Future<void> _run(String executable, List<String> arguments) async {
-  _section('$executable ${arguments.first} …');
+  // Windows'ta Process.start PATH uzantılarını çözümlemez.
+  final exe = Platform.isWindows && executable == 'flutter'
+      ? 'flutter.bat'
+      : executable;
+  _section('$exe ${arguments.first} …');
   final process = await Process.start(
-    executable,
+    exe,
     arguments,
     mode: ProcessStartMode.inheritStdio,
   );
