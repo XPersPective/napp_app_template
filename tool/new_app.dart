@@ -189,7 +189,7 @@ Future<void> _run(String executable, List<String> arguments) async {
 
 void _androidManifest(_Options o) {
   final path = 'android/app/src/main/AndroidManifest.xml';
-  var manifest = File(path).readAsStringSync().replaceAll('\n\n', '\n');
+  var manifest = _normalize(File(path).readAsStringSync());
 
   if (o.ads) {
     // Gerçek kimlik derlemede ${admobAppId} ile gelir (key.properties);
@@ -244,7 +244,7 @@ void _androidManifest(_Options o) {
 
 void _gradleRelease(_Options o) {
   final path = 'android/app/build.gradle.kts';
-  var gradle = File(path).readAsStringSync().replaceAll('\n\n', '\n');
+  var gradle = _normalize(File(path).readAsStringSync());
 
   // key.properties okuma kodu (imza + admobAppId; dosya yoksa test kimliği).
   gradle = gradle.replaceFirst(
@@ -301,7 +301,7 @@ void _gradleRelease(_Options o) {
 
 void _iosPlist(_Options o) {
   final path = 'ios/Runner/Info.plist';
-  var plist = File(path).readAsStringSync().replaceAll('\n\n', '\n');
+  var plist = _normalize(File(path).readAsStringSync());
   if (o.ads) {
     plist = plist.replaceFirst(
       '<dict>',
@@ -323,7 +323,7 @@ void _iosPlist(_Options o) {
 
 void _pubspec(_Options o) {
   final path = 'pubspec.yaml';
-  var pubspec = File(path).readAsStringSync().replaceAll('\n\n', '\n');
+  var pubspec = _normalize(File(path).readAsStringSync());
   String dep(String pkg, String ref) {
     if (o.kitPath != null) {
       return '  $pkg:\n'
