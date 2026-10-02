@@ -13,7 +13,11 @@ const privacyUrl = String.fromEnvironment('PRIVACY_URL',
     defaultValue: 'https://example.com/privacy');
 const sourceUrl = String.fromEnvironment('SOURCE_URL',
     defaultValue: 'https://github.com/XPersPective/@@PROJECT_NAME@@');
-const otherAppsUrl = String.fromEnvironment('OTHER_APPS_URL');
+// "Kesfet" sekmesi (ORTAK 3.6): gelistiricinin diger uygulamalari bu ortak
+// katalogdan okunur; yeni uygulama yayina girince yalnizca napp_apps'e eklenir.
+const otherAppsUrl = String.fromEnvironment('OTHER_APPS_URL',
+    defaultValue:
+        'https://raw.githubusercontent.com/XPersPective/napp_apps/HEAD/apps.json');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,7 +29,7 @@ Future<void> main() async {
     sourceUrl: sourceUrl,
     privacyPolicyUrl: privacyUrl,
     contactEmail: contactEmail.isEmpty ? 'hello@example.com' : contactEmail,
-    otherAppsUrl: otherAppsUrl.isEmpty ? null : otherAppsUrl,
+    otherAppsUrl: otherAppsUrl,
     sloganKey: 'app.slogan',
   );
 @@IF_PRO@@  final repository = PurchaseRepository(
@@ -157,15 +161,36 @@ class HomePage extends StatelessWidget {
         children: [@@IF_ADS@@
           BannerAdWidget(controller: bannerController),@@END@@
           NavigationBar(
+            selectedIndex: 0,
             destinations: const [
               NavigationDestination(
                 icon: Icon(Icons.home_outlined),
                 selectedIcon: Icon(Icons.home),
                 label: 'Ana sayfa',
               ),
+              NavigationDestination(
+                icon: Icon(Icons.explore_outlined),
+                selectedIcon: Icon(Icons.explore),
+                label: 'Kesfet',
+              ),
             ],
+            onDestinationSelected: (index) {
+              if (index == 1) _openDiscover(context);
+            },
           ),
         ],
+      ),
+    );
+  }
+
+  /// Diger uygulamalarimiz: simge + kisa aciklama; dokununca Play / App Store.
+  void _openDiscover(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => OtherAppsPage(
+          identity: identity,
+          repository: OtherAppsRepository(appsUrl: otherAppsUrl),
+        ),
       ),
     );
   }
