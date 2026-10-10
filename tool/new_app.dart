@@ -489,17 +489,23 @@ void _pubspec(_Options o) {
     );
   }
 
-  // Lokal geliştirme: --kit-path verilirse bağımlılıklar yerel kopyaya
-  // zorlanır (üretimde kullanılmaz).
-  if (o.kitPath != null && !pubspec.contains('dependency_overrides:')) {
+  // Local development overrides every selected package with --kit-path.
+  // ponytail: Git core overrides hosted version bounds in sibling manifests;
+  // verify each pinned combination; hosted releases can remove this override.
+  if ((o.kitPath != null || o.pro || o.ads) &&
+      !pubspec.contains('dependency_overrides:')) {
     final overrides = StringBuffer('dependency_overrides:\n');
-    for (final pkg in [
-      'napp_core',
-      if (o.pro) 'napp_pro',
-      if (o.ads) 'napp_ads',
-    ]) {
-      overrides.write('  $pkg:\n');
-      overrides.write('    path: ${o.kitPath}/packages/$pkg\n');
+    if (o.kitPath == null) {
+      overrides.write(dep('napp_core', o.kitRef));
+    } else {
+      for (final pkg in [
+        'napp_core',
+        if (o.pro) 'napp_pro',
+        if (o.ads) 'napp_ads',
+      ]) {
+        overrides.write('  $pkg:\n');
+        overrides.write('    path: ${o.kitPath}/packages/$pkg\n');
+      }
     }
     pubspec = pubspec.replaceFirst(
       'dev_dependencies:',

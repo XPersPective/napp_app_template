@@ -41,8 +41,16 @@ Future<void> main(List<String> args) async {
   stdout.writeln(
     'PASS: nested rendering, malformed tokens, safe Dart strings.',
   );
-  if (!args.contains('--kit-path')) {
-    require(!args.contains('--variant'), '--variant requires --kit-path');
+  final remote = args.contains('--remote');
+  require(
+    !(remote && args.contains('--kit-path')),
+    '--remote and --kit-path are mutually exclusive',
+  );
+  if (!remote && !args.contains('--kit-path')) {
+    require(
+      !args.contains('--variant'),
+      '--variant requires --kit-path or --remote',
+    );
     return;
   }
   String value(String flag) {
@@ -56,8 +64,13 @@ Future<void> main(List<String> args) async {
     return args[index + 1];
   }
 
-  final kit = Directory(value('--kit-path')).absolute.path
-      .replaceAll('\\', '/');
+  final kit = remote
+      ? null
+      : Directory(value('--kit-path')).absolute.path.replaceAll('\\', '/');
+  final refs = [
+    for (final flag in ['--kit-ref', '--pro-ref', '--ads-ref'])
+      if (args.contains(flag)) ...[flag, value(flag)],
+  ];
   final variants = {
     'free': ['--ads', 'no', '--pro', 'no'],
     'ads_only': ['--ads', 'yes', '--pro', 'no'],
@@ -114,8 +127,8 @@ Future<void> main(List<String> args) async {
       ...entry.value,
       '--data',
       entry.key == 'cloud' ? 'cloud' : 'local',
-      '--kit-path',
-      kit,
+      if (kit != null) ...['--kit-path', kit],
+      ...refs,
       '--force',
       '--skip-build',
     ], workingDirectory: app.path);
