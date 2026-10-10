@@ -21,7 +21,7 @@ Options:
 - --source-icon uses the existing icon/splash generator (installed Pillow required).
 - --kit-path uses local shared packages; omit it to resolve immutable remote tags.
 - --kit-ref selects only napp_core; --pro-ref and --ads-ref independently select
-  the other packages. Defaults are core-v1.1.1, pro-v1.1.0 and ads-v1.0.1.
+  the other packages. Defaults are core-v1.1.2, pro-v1.1.0 and ads-v1.0.1.
   Existing app refs are never upgraded implicitly; a core version never invents an ads tag.
 - --skip-build explicitly skips APK, for tests; default still runs APK release build.
   No Android license is accepted automatically; iOS requires macOS/Xcode.

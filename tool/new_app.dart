@@ -5,7 +5,7 @@
 //     --name "Uygulama Adı" --package com.crazypenguin.uygulama \
 //     --ads yes --pro yes --data local \
 //     [--source-icon assets/brand/example_source_icon.png] \
-//     [--kit-ref core-v1.1.1] [--kit-path D:/repositories/napp-core] [--force]
+//     [--kit-ref core-v1.1.2] [--kit-path D:/repositories/napp-core] [--force]
 //
 // Yalnızca yeni proje kopyasında çalışır; mevcut uygulamayı --force bile
 // değiştiremez. Üretilen örnek dosyaları bu çalıştırmaya aittir.
@@ -224,7 +224,7 @@ class _Options {
         : null;
     final kitRef = args.contains('--kit-ref')
         ? value('--kit-ref')
-        : 'core-v1.1.1';
+        : 'core-v1.1.2';
     final kitPath = args.contains('--kit-path') ? value('--kit-path') : null;
     final force = args.contains('--force');
 
