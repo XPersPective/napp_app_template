@@ -153,8 +153,9 @@ Future<void> main(List<String> args) async {
         'disabled discover still visible',
       );
     }
-    if (entry.key == 'ads_only')
+    if (entry.key == 'ads_only') {
       require(!main.contains('proController'), 'ads-only Pro reference');
+    }
     if (entry.key == 'monthly') {
       require(
         main.contains('subscriptionProductId:') && !main.contains('productId:'),
