@@ -5,7 +5,7 @@
 //     --name "Uygulama Adı" --package com.crazypenguin.uygulama \
 //     --ads yes --pro yes --data local \
 //     [--source-icon assets/brand/example_source_icon.png] \
-//     [--kit-ref core-v1.0.0] [--kit-path D:/repositories/napp-core] [--force]
+//     [--kit-ref core-v1.1.0] [--kit-path D:/repositories/napp-core] [--force]
 //
 // Yalnızca yeni proje kopyasında çalışır; mevcut uygulamayı --force bile
 // değiştiremez. Üretilen örnek dosyaları bu çalıştırmaya aittir.
@@ -118,6 +118,8 @@ class _Options {
     required this.dataCloud,
     required this.sourceIcon,
     required this.kitRef,
+    required this.proRef,
+    required this.adsRef,
     required this.kitPath,
     required this.force,
     required this.monthly,
@@ -137,6 +139,8 @@ class _Options {
   final bool dataCloud;
   final String? sourceIcon;
   final String kitRef;
+  final String proRef;
+  final String adsRef;
   final String? kitPath;
   final bool force;
   final bool monthly;
@@ -220,7 +224,7 @@ class _Options {
         : null;
     final kitRef = args.contains('--kit-ref')
         ? value('--kit-ref')
-        : 'core-v1.0.0';
+        : 'core-v1.1.0';
     final kitPath = args.contains('--kit-path') ? value('--kit-path') : null;
     final force = args.contains('--force');
 
@@ -235,6 +239,8 @@ class _Options {
       dataCloud: dataCloud,
       sourceIcon: sourceIcon,
       kitRef: kitRef,
+      proRef: args.contains('--pro-ref') ? value('--pro-ref') : 'pro-v1.1.0',
+      adsRef: args.contains('--ads-ref') ? value('--ads-ref') : 'ads-v1.0.1',
       kitPath: kitPath,
       force: force,
       monthly: ['monthly', 'both', 'monthly+lifetime'].contains(proMode),
@@ -462,10 +468,10 @@ void _pubspec(_Options o) {
 
   final deps = StringBuffer(dep('napp_core', o.kitRef));
   if (o.pro) {
-    deps.write(dep('napp_pro', _refFor(o.kitRef, 'pro')));
+    deps.write(dep('napp_pro', o.proRef));
   }
   if (o.ads) {
-    deps.write(dep('napp_ads', _refFor(o.kitRef, 'ads')));
+    deps.write(dep('napp_ads', o.adsRef));
   }
   final flutterBlock = [
     'dependencies:',
@@ -504,9 +510,6 @@ void _pubspec(_Options o) {
   File(path).writeAsStringSync(pubspec);
   stdout.writeln('güncellendi: $path');
 }
-
-String _refFor(String coreRef, String package) =>
-    coreRef.replaceFirst('core-', '$package-');
 
 /// JSON quoting also escapes dollar interpolation in generated Dart literals.
 String dartString(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
@@ -561,6 +564,7 @@ void _writeExampleFiles(_Options o) {
     '@@REWARDED@@': '${o.rewarded}',
     '@@APP_OPEN@@': '${o.appOpen}',
     '@@INTERSTITIAL@@': '${o.interstitial}',
+    '@@DATA_CLOUD@@': '${o.dataCloud}',
   };
   String render(String source) => renderTemplate(source, {
     'PRO': o.pro,
@@ -580,7 +584,9 @@ void _writeExampleFiles(_Options o) {
   _writeFile('test/app_test.dart', render(testTemplate), force: o.force);
   _writeFile(
     '.env.example',
-    '# Kullanılan gizli değerler dart-define ile derlemede verilir (1.2).\n',
+    '# Public client configuration only. Dart defines are readable in app binaries.\n'
+        '# Never embed account credentials, service keys or signing secrets.\n'
+        '# CONTACT_EMAIL, PRIVACY_URL, SOURCE_URL, APP_STORE_ID are public values.\n',
     force: o.force,
   );
   _writeFile(

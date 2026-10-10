@@ -1,5 +1,6 @@
 @@IF_ADS@@import 'dart:async';
 @@END@@import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:napp_core/napp_core.dart';
 @@IF_PRO@@import 'package:napp_pro/napp_pro.dart';
@@ -7,6 +8,8 @@ import 'package:napp_core/napp_core.dart';
 @@END@@
 // Product-specific public links must be supplied before store release.
 const contactEmail = String.fromEnvironment('CONTACT_EMAIL');
+const appStoreId = String.fromEnvironment('APP_STORE_ID');
+const privacyCloud = @@DATA_CLOUD@@;
 const privacyUrl = String.fromEnvironment('PRIVACY_URL',
     defaultValue: 'https://example.com/privacy');
 const sourceUrl = String.fromEnvironment('SOURCE_URL',
@@ -29,6 +32,7 @@ Future<void> main() async {
 @@END@@  final identity = AppIdentity(
     appName: @@APP_NAME@@,
     packageName: '@@PACKAGE_NAME@@',
+    appStoreId: appStoreId.isEmpty ? null : appStoreId,
     sourceUrl: sourceUrl,
     privacyPolicyUrl: privacyUrl,
     contactEmail: contactEmail.isEmpty ? 'hello@example.com' : contactEmail,
@@ -186,9 +190,31 @@ class HomePage extends StatelessWidget {
   final RewardedAdManager rewardedManager;
   final PreferenceAdapter adsAdapter;@@END@@
 
+  Future<void> _storeAction(BuildContext context, {required bool share}) async {
+    final l10n = NappLocalizations.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final isIos = defaultTargetPlatform == TargetPlatform.iOS;
+    try {
+      if (share) {
+        await ShareService().shareApp(identity,
+            message: l10n.shareText('{url}'), isIos: isIos);
+      } else {
+        await ReviewService().openRatePage(identity, isIos: isIos);
+      }
+    } catch (_) {
+      if (messenger.mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(l10n.commonErrorGeneric)));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = NappLocalizations.of(context);
+    final platform = defaultTargetPlatform;
+    final storeAvailable = !kIsWeb &&
+        (platform == TargetPlatform.android ||
+            (platform == TargetPlatform.iOS && identity.appStoreId != null));
     return Scaffold(
       appBar: AppBar(title: Text(identity.appName), actions: [@@IF_REWARDED@@
         GiftFlow(
@@ -203,7 +229,7 @@ class HomePage extends StatelessWidget {
           tooltip: l10n.aboutTitle,
           icon: const Icon(Icons.info_outline),
           onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
-            builder: (_) => AboutPage(identity: identity),
+            builder: (_) => AboutPage(identity: identity, privacyCloud: privacyCloud),
           )),
         ),
       ]),
@@ -238,6 +264,18 @@ class HomePage extends StatelessWidget {
                 translations: translations,
               ),
             )),
+          ),
+          ListTile(
+            leading: const Icon(Icons.share_outlined),
+            title: Text(l10n.shareTitle),
+            enabled: storeAvailable,
+            onTap: storeAvailable ? () => _storeAction(context, share: true) : null,
+          ),
+          ListTile(
+            leading: const Icon(Icons.star_outline),
+            title: Text(l10n.rateTitle),
+            enabled: storeAvailable,
+            onTap: storeAvailable ? () => _storeAction(context, share: false) : null,
           ),@@IF_ADS@@
           ListTile(
             leading: const Icon(Icons.privacy_tip_outlined),

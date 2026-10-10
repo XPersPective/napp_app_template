@@ -77,12 +77,15 @@ void main() {
             await tester.tap(find.byTooltip('About'));
             await tester.pumpAndSettle();
             expect(find.byType(AboutPage), findsOneWidget);
+            expect(tester.widget<AboutPage>(find.byType(AboutPage)).privacyCloud, privacyCloud);
             expect(find.text('about.title'), findsNothing);
             expect(tester.takeException(), isNull);
             await tester.pageBack();
             await tester.pumpAndSettle();
 @@IF_PRO@@            await tester.scrollUntilVisible(find.text(@@APP_NAME@@ ' Pro'), 100,
                 scrollable: find.byType(Scrollable).first);
+            await tester.pumpAndSettle();
+            expect(find.text(@@APP_NAME@@ ' Pro').hitTestable(), findsOneWidget);
             await tester.tap(find.text(@@APP_NAME@@ ' Pro'));
             await tester.pumpAndSettle();
             expect(find.byType(PaywallPage), findsOneWidget);
@@ -111,6 +114,63 @@ void main() {
         });
       }
     }
+  }
+  for (final (platform, storeId, available) in [
+    (TargetPlatform.android, null, true),
+    (TargetPlatform.iOS, null, false),
+    (TargetPlatform.iOS, '1234567890', true),
+    (TargetPlatform.linux, null, false),
+  ]) {
+    testWidgets('native store availability $platform id=$storeId', (tester) async {
+      String? sharedText;
+      const shareChannel = MethodChannel('dev.fluttercommunity.plus/share');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(shareChannel, (call) async {
+        sharedText = (call.arguments as Map)['text'] as String;
+        return 'success';
+      });
+      addTearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(shareChannel, null));
+      final store = SettingsStore();
+      final theme = ThemeModeController(store: store)..load();
+      final locale = LocaleController(store: store)..load()..setLocale(const Locale('tr'));
+@@IF_PRO@@      final repository = PurchaseRepository(adapter: _Store(), @@PURCHASE_PRODUCTS@@);
+      final pro = ProController(store: store, repository: repository)..load();
+@@END@@@@IF_ADS@@      final policy = AdPolicy();
+      final banner = BannerAdController(policy: policy);
+@@END@@      await tester.pumpWidget(NappApp(
+        identity: AppIdentity(appName: @@APP_NAME@@, packageName: '@@PACKAGE_NAME@@',
+          appStoreId: storeId, sourceUrl: 'https://example.com/source',
+          privacyPolicyUrl: 'https://example.com/privacy', contactEmail: 'hello@example.com'),
+        translations: translations, themeModeController: theme, localeController: locale,@@IF_PRO@@
+        proController: pro, repository: repository,@@END@@@@IF_ADS@@
+        policy: policy, bannerController: banner,
+        rewardedManager: RewardedAdManager(policy: policy), adsAdapter: _Memory(),@@END@@
+      ));
+      await tester.pumpAndSettle();
+      for (final icon in [Icons.share_outlined, Icons.star_outline]) {
+        final tile = find.ancestor(of: find.byIcon(icon), matching: find.byType(ListTile));
+        await tester.scrollUntilVisible(tile, 100);
+        expect(tester.widget<ListTile>(tile).onTap != null, available);
+      }
+      if (available) {
+        final shareTile = find.ancestor(of: find.byIcon(Icons.share_outlined),
+            matching: find.byType(ListTile));
+        await tester.ensureVisible(shareTile);
+        await tester.tap(shareTile);
+        await tester.pumpAndSettle();
+        final url = platform == TargetPlatform.iOS
+            ? StoreLinks.appStore(storeId!) : StoreLinks.playStore('@@PACKAGE_NAME@@');
+        expect(sharedText, translations.text('tr', 'share.text', {'url': url}));
+      }
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+@@IF_PRO@@      pro.dispose();
+      await repository.dispose();
+@@END@@@@IF_ADS@@      banner.dispose();
+@@END@@      theme.dispose();
+      locale.dispose();
+    }, variant: TargetPlatformVariant({platform}));
   }
 @@IF_ADS@@  test('fullscreen formats default off unless explicitly selected', () {
     expect(appOpenEnabled, @@APP_OPEN@@);

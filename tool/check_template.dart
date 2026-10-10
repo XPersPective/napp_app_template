@@ -41,15 +41,23 @@ Future<void> main(List<String> args) async {
   stdout.writeln(
     'PASS: nested rendering, malformed tokens, safe Dart strings.',
   );
-  if (!args.contains('--kit-path')) return;
-  String value(String flag) => args[args.indexOf(flag) + 1];
+  if (!args.contains('--kit-path')) {
+    require(!args.contains('--variant'), '--variant requires --kit-path');
+    return;
+  }
+  String value(String flag) {
+    final index = args.indexOf(flag);
+    require(
+      index >= 0 &&
+          index + 1 < args.length &&
+          !args[index + 1].startsWith('--'),
+      '$flag requires a value',
+    );
+    return args[index + 1];
+  }
+
   final kit = Directory(value('--kit-path')).absolute.path
       .replaceAll('\\', '/');
-  final root = args.contains('--output')
-      ? Directory(value('--output')).absolute
-      : Directory.systemTemp.createTempSync('napp-factory-matrix-');
-  root.createSync(recursive: true);
-  stdout.writeln('Isolated matrix: ${root.path}');
   final variants = {
     'free': ['--ads', 'no', '--pro', 'no'],
     'ads_only': ['--ads', 'yes', '--pro', 'no'],
@@ -58,8 +66,23 @@ Future<void> main(List<String> args) async {
     'monthly': ['--ads', 'yes', '--pro', 'monthly'],
     'both_ads': ['--ads', 'yes', '--pro', 'both'],
     'all_optional_off': ['--ads', 'no', '--pro', 'no', '--other-apps', 'no'],
+    'cloud': ['--ads', 'no', '--pro', 'no'],
   };
-  for (final entry in variants.entries) {
+  final selected = args.contains('--variant')
+      ? value('--variant').split(',').toSet()
+      : variants.keys.toSet();
+  require(
+    selected.every(variants.containsKey),
+    '--variant must contain exact comma-separated names: ${variants.keys.join(',')}',
+  );
+  final root = args.contains('--output')
+      ? Directory(value('--output')).absolute
+      : Directory.systemTemp.createTempSync('napp-factory-matrix-');
+  root.createSync(recursive: true);
+  stdout.writeln('Isolated matrix: ${root.path}');
+  for (final entry in variants.entries.where(
+    (entry) => selected.contains(entry.key),
+  )) {
     final app = Directory('${root.path}/${entry.key}');
     if (app.existsSync() && app.listSync().isNotEmpty) {
       throw StateError(
@@ -68,8 +91,9 @@ Future<void> main(List<String> args) async {
     }
     app.createSync(recursive: true);
     Directory('${app.path}/android').createSync();
-    File('${app.path}/android/key.properties.example')
-        .writeAsStringSync('# starter signing placeholder; no real credentials');
+    File(
+      '${app.path}/android/key.properties.example',
+    ).writeAsStringSync('# starter signing placeholder; no real credentials');
     Directory('${app.path}/tool/templates').createSync(recursive: true);
     for (final path in [
       'tool/new_app.dart',
@@ -89,7 +113,7 @@ Future<void> main(List<String> args) async {
       'com.crazypenguin.factory_${entry.key}',
       ...entry.value,
       '--data',
-      'local',
+      entry.key == 'cloud' ? 'cloud' : 'local',
       '--kit-path',
       kit,
       '--force',
@@ -135,6 +159,10 @@ Future<void> main(List<String> args) async {
     );
     final pubspec = File('${app.path}/pubspec.yaml').readAsStringSync();
     final main = File('${app.path}/lib/main.dart').readAsStringSync();
+    require(
+      main.contains('privacyCloud = ${entry.key == 'cloud'}'),
+      'generated privacy does not match data mode',
+    );
     if (entry.key == 'free' || entry.key == 'all_optional_off') {
       require(
         !pubspec.contains('napp_ads:') && !pubspec.contains('napp_pro:'),
@@ -177,6 +205,6 @@ Future<void> main(List<String> args) async {
     }
   }
   stdout.writeln(
-    'PASS: ${variants.length} actual generated apps analyzed/tested; APK build deliberately separate.',
+    'PASS: ${selected.length} actual generated apps analyzed/tested; APK build deliberately separate.',
   );
 }
