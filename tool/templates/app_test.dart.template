@@ -1,10 +1,119 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:napp_core/napp_core.dart';
+@@IF_PRO@@import 'package:napp_pro/napp_pro.dart';
+@@END@@@@IF_ADS@@import 'package:napp_ads/napp_ads.dart';
+@@END@@import 'package:@@PROJECT_NAME@@/main.dart';
 
-import 'package:@@PROJECT_NAME@@/main.dart';
-
-void main() {
-  test('kurulum tamam; NappApp tanımlı', () {
-    expect(NappApp, isNotNull);
-    expect('@@PRODUCT_ID@@'.endsWith('_pro_lifetime'), isTrue);
-  });
+@@IF_PRO@@class _Store implements StoreAdapter {
+  @override
+  Future<List<StoreProduct>> queryProducts(Set<String> ids) async => [];
+  @override
+  Future<void> buy(StoreProduct product) async {}
+  @override
+  Future<void> restore() async {}
+  @override
+  Stream<List<StorePurchaseUpdate>> get updates => const Stream.empty();
 }
+@@END@@@@IF_ADS@@class _Memory implements PreferenceAdapter {
+  @override
+  Map<String, Object> readAll() => {};
+  @override
+  Object? read(String key) => null;
+  @override
+  Future<void> write(String key, Object value) async {}
+  @override
+  Future<void> delete(String key) async {}
+}
+@@END@@
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  late NappTranslations translations;
+  setUpAll(() async {
+    translations = await NappTranslations.loadCore();
+@@IF_PRO@@    translations = await ProLocalization.load(base: translations);
+@@END@@  });
+  for (final size in [const Size(360, 800), const Size(900, 1000), const Size(800, 360)]) {
+    for (final scale in [1.0, 1.3, 2.0]) {
+      for (final mode in [ThemeMode.light, ThemeMode.dark]) {
+        testWidgets('navigation/layout $size scale=$scale theme=$mode', (tester) async {
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1;
+          final store = SettingsStore();
+          final theme = ThemeModeController(store: store)..load()..setMode(mode);
+          final locale = LocaleController(store: store)..load()..setLocale(const Locale('en'));
+@@IF_PRO@@          final repository = PurchaseRepository(adapter: _Store(),
+            @@PURCHASE_PRODUCTS@@);
+          final pro = ProController(store: store, repository: repository)..load();
+@@END@@@@IF_ADS@@          final policy = AdPolicy();
+          final banner = BannerAdController(policy: policy);
+@@END@@          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(const MethodChannel('dev.fluttercommunity.plus/package_info'),
+                (_) async => {'appName': 'Test', 'packageName': '@@PACKAGE_NAME@@',
+                  'version': '1.0', 'buildNumber': '1', 'buildSignature': ''});
+          try {
+            await tester.pumpWidget(MediaQuery(
+              data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+              child: NappApp(
+                identity: AppIdentity(appName: @@APP_NAME@@, packageName: '@@PACKAGE_NAME@@',
+                  sourceUrl: 'https://example.com/source',
+                  privacyPolicyUrl: 'https://example.com/privacy',
+                  contactEmail: 'hello@example.com'),
+                translations: translations,
+                themeModeController: theme,
+                localeController: locale,@@IF_PRO@@
+                proController: pro,
+                repository: repository,@@END@@@@IF_ADS@@
+                policy: policy,
+                bannerController: banner,
+                rewardedManager: RewardedAdManager(policy: policy),
+                adsAdapter: _Memory(),@@END@@
+              ),
+            ));
+            await tester.pumpAndSettle();
+            expect(find.text('Appearance'), findsOneWidget);
+            expect(tester.takeException(), isNull);
+            await tester.tap(find.byTooltip('About'));
+            await tester.pumpAndSettle();
+            expect(find.byType(AboutPage), findsOneWidget);
+            expect(find.text('about.title'), findsNothing);
+            expect(tester.takeException(), isNull);
+            await tester.pageBack();
+            await tester.pumpAndSettle();
+@@IF_PRO@@            await tester.scrollUntilVisible(find.text(@@APP_NAME@@ ' Pro'), 100,
+                scrollable: find.byType(Scrollable).first);
+            await tester.tap(find.text(@@APP_NAME@@ ' Pro'));
+            await tester.pumpAndSettle();
+            expect(find.byType(PaywallPage), findsOneWidget);
+            expect(tester.takeException(), isNull);
+@@IF_MONTHLY_ONLY@@            expect(find.text('One-time payment — no subscription'), findsNothing);
+            expect(repository.monthlyReady, isFalse);
+            expect(pro.hasLifetimePurchase, isFalse);
+@@END@@@@IF_BOTH@@            expect(find.text('One-time payment — no subscription'), findsOneWidget);
+            await tester.ensureVisible(find.text('Monthly'));
+            await tester.tap(find.text('Monthly'));
+            await tester.pumpAndSettle();
+            expect(find.text('One-time payment — no subscription'), findsNothing);
+            expect(repository.monthlyReady, isFalse);
+@@END@@@@END@@          } finally {
+            await tester.pumpWidget(const SizedBox.shrink());
+@@IF_PRO@@            pro.dispose();
+            await repository.dispose();
+@@END@@@@IF_ADS@@            banner.dispose();
+@@END@@            theme.dispose();
+            locale.dispose();
+            tester.view.resetPhysicalSize();
+            tester.view.resetDevicePixelRatio();
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+                .setMockMethodCallHandler(const MethodChannel('dev.fluttercommunity.plus/package_info'), null);
+          }
+        });
+      }
+    }
+  }
+@@IF_ADS@@  test('fullscreen formats default off unless explicitly selected', () {
+    expect(appOpenEnabled, @@APP_OPEN@@);
+    expect(interstitialEnabled, @@INTERSTITIAL@@);
+  });
+@@END@@}

@@ -7,24 +7,34 @@
 //     [--source-icon assets/brand/example_source_icon.png] \
 //     [--kit-ref core-v1.0.0] [--kit-path D:/repositories/napp-core] [--force]
 //
-// Idempotent çalışır; var olan bir dosyanın üzerine yazmadan önce sorar
-// (--force ile sorulmadan yazar).
+// Yalnızca yeni proje kopyasında çalışır; mevcut uygulamayı --force bile
+// değiştiremez. Üretilen örnek dosyaları bu çalıştırmaya aittir.
 import 'dart:io';
+import 'dart:convert';
 
 const _testAdmobAppIdAndroid = 'ca-app-pub-3940256099942544~3347511713';
 const _testAdmobAppIdIos = 'ca-app-pub-3940256099942544~1458002511';
 
 /// Satır sonlarını LF'e indirger (flutter create Windows'ta CRLF üretir).
 String _normalize(String text) => text.replaceAll(
-      String.fromCharCode(13) + String.fromCharCode(10),
-      String.fromCharCode(10),
-    );
+  String.fromCharCode(13) + String.fromCharCode(10),
+  String.fromCharCode(10),
+);
 
 Future<void> main(List<String> args) async {
   final options = _Options.parse(args);
+  if (['lib/main.dart', 'pubspec.yaml', 'android', 'ios'].any(
+    (path) => FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound,
+  )) {
+    throw UsageException(
+      'Refusing existing app: use a fresh template copy. '
+      '--force never bypasses this guard.',
+    );
+  }
   _section('napp kurulum: ${options.name}');
   stdout.writeln(
-      'ads=${options.ads} pro=${options.pro} data=${options.dataLabel}');
+    'ads=${options.ads} pro=${options.pro} data=${options.dataLabel}',
+  );
 
   await _run('flutter', [
     'create',
@@ -41,6 +51,7 @@ Future<void> main(List<String> args) async {
   _gradleRelease(options);
   _iosPlist(options);
   _writeExampleFiles(options);
+  await _run('dart', ['format', 'lib', 'test']);
   _pubspec(options);
   _projectBrain(options);
   _checkStandardDoc();
@@ -58,19 +69,28 @@ Future<void> main(List<String> args) async {
   }
 
   await _run('flutter', ['pub', 'get']);
-  await _run('flutter', [
-    'analyze',
-    // Lokal kit-path modunda dependency_overrides kaynaklı bilgi notları
-    // kabul edilir; üretimde --fatal-infos ile katı denetlenir.
-    if (options.kitPath != null) '--no-fatal-infos',
-  ]);
+  await _run('flutter', ['analyze', '--fatal-infos']);
   await _run('flutter', ['test']);
-  await _run('flutter', ['build', 'apk', '--release']);
+  if (!options.skipBuild) {
+    await _run('flutter', ['build', 'apk', '--release']);
+  }
 
   _section('KURULUM TAMAM');
-  stdout.writeln('Şimdi: 1) PROJECT_BRAIN.md bölüm 0 tablosunu kontrol et, '
-      '2) gizlilik politikası bağlantısını doldur, '
-      '3) mağazada ürün kimliğini oluştur: ${options.productId}');
+  if (options.skipBuild) {
+    stdout.writeln('APK build SKIPPED (not release-ready).');
+  }
+  if (options.monthly) {
+    stdout.writeln(
+      'MONTHLY PRODUCTION BLOCKED: connect a trusted '
+      'SubscriptionVerifier receipt backend and configure store products. '
+      'No monthly purchase/grant is possible without verification.',
+    );
+  }
+  stdout.writeln(
+    'Şimdi: 1) PROJECT_BRAIN.md bölüm 0 tablosunu kontrol et, '
+    '2) gizlilik politikası bağlantısını doldur, '
+    '3) mağazada ürün kimliğini oluştur: ${options.productId}',
+  );
 }
 
 class _Options {
@@ -84,6 +104,14 @@ class _Options {
     required this.kitRef,
     required this.kitPath,
     required this.force,
+    required this.monthly,
+    required this.lifetime,
+    required this.banner,
+    required this.rewarded,
+    required this.appOpen,
+    required this.interstitial,
+    required this.skipBuild,
+    required this.otherApps,
   });
 
   final String name;
@@ -95,6 +123,14 @@ class _Options {
   final String kitRef;
   final String? kitPath;
   final bool force;
+  final bool monthly;
+  final bool lifetime;
+  final bool banner;
+  final bool rewarded;
+  final bool appOpen;
+  final bool interstitial;
+  final bool skipBuild;
+  final bool otherApps;
 
   String get dataLabel => dataCloud ? 'BULUT' : 'YEREL';
 
@@ -104,7 +140,8 @@ class _Options {
   }
 
   String get projectName => packageName.split('.').last;
-  String get productId => '${projectName}_pro_lifetime';
+  String get productId =>
+      '${projectName}_pro_${monthly && !lifetime ? 'monthly' : 'lifetime'}';
 
   static _Options parse(List<String> args) {
     String value(String flag) {
@@ -117,13 +154,57 @@ class _Options {
 
     final name = value('--name');
     final packageName = value('--package');
-    final ads = value('--ads').toLowerCase() == 'yes';
-    final pro = value('--pro').toLowerCase() == 'yes';
-    final dataCloud = value('--data').toLowerCase() == 'cloud';
-    final sourceIcon =
-        args.contains('--source-icon') ? value('--source-icon') : null;
-    final kitRef =
-        args.contains('--kit-ref') ? value('--kit-ref') : 'core-v1.0.0';
+    bool yesNo(String flag, {bool? fallback}) {
+      if (!args.contains(flag) && fallback != null) return fallback;
+      final raw = value(flag).toLowerCase();
+      if (raw != 'yes' && raw != 'no') {
+        throw UsageException('$flag: use yes/no');
+      }
+      return raw == 'yes';
+    }
+
+    final ads = yesNo('--ads');
+    final proMode = value('--pro').toLowerCase();
+    if (![
+      'yes',
+      'no',
+      'lifetime',
+      'monthly',
+      'both',
+      'monthly+lifetime',
+    ].contains(proMode)) {
+      throw UsageException('--pro: use no/yes/lifetime/monthly/both');
+    }
+    final pro = proMode != 'no';
+    final data = value('--data').toLowerCase();
+    if (!['local', 'cloud'].contains(data)) {
+      throw UsageException('--data: use local/cloud');
+    }
+    final dataCloud = data == 'cloud';
+    final banner = yesNo('--banner', fallback: ads);
+    final rewarded = yesNo('--rewarded', fallback: ads && pro);
+    final appOpen = yesNo('--app-open', fallback: false);
+    final interstitial = yesNo('--interstitial', fallback: false);
+    if (interstitial) {
+      throw UsageException(
+        'Starter has no natural interstitial placement; '
+        'integrate InterstitialAdManager at a product-specific pause first.',
+      );
+    }
+    if (!ads && (banner || rewarded || appOpen || interstitial)) {
+      throw UsageException('ad formats require --ads yes');
+    }
+    if (rewarded && !pro) {
+      throw UsageException(
+        '24h Pro reward requires --pro yes/lifetime/monthly',
+      );
+    }
+    final sourceIcon = args.contains('--source-icon')
+        ? value('--source-icon')
+        : null;
+    final kitRef = args.contains('--kit-ref')
+        ? value('--kit-ref')
+        : 'core-v1.0.0';
     final kitPath = args.contains('--kit-path') ? value('--kit-path') : null;
     final force = args.contains('--force');
 
@@ -140,6 +221,14 @@ class _Options {
       kitRef: kitRef,
       kitPath: kitPath,
       force: force,
+      monthly: ['monthly', 'both', 'monthly+lifetime'].contains(proMode),
+      lifetime: pro && proMode != 'monthly',
+      banner: banner,
+      rewarded: rewarded,
+      appOpen: appOpen,
+      interstitial: interstitial,
+      skipBuild: args.contains('--skip-build'),
+      otherApps: yesNo('--other-apps', fallback: true),
     );
   }
 }
@@ -175,8 +264,9 @@ void _writeFile(String path, String content, {required bool force}) {
 
 Future<void> _run(String executable, List<String> arguments) async {
   // Windows'ta Process.start PATH uzantılarını çözümlemez.
-  final exe =
-      Platform.isWindows && executable == 'flutter' ? 'flutter.bat' : executable;
+  final exe = Platform.isWindows && executable == 'flutter'
+      ? 'flutter.bat'
+      : executable;
   _section('$exe ${arguments.first} …');
   final process = await Process.start(
     exe,
@@ -199,9 +289,9 @@ void _androidManifest(_Options o) {
     manifest = manifest.replaceFirst(
       '</application>',
       '        <meta-data\n'
-      '            android:name="com.google.android.gms.ads.APPLICATION_ID"\n'
-      '            android:value="\${admobAppId}" />\n'
-      '    </application>',
+          '            android:name="com.google.android.gms.ads.APPLICATION_ID"\n'
+          '            android:value="\${admobAppId}" />\n'
+          '    </application>',
     );
   }
   // Yalnızca HTTPS (1.4).
@@ -213,8 +303,8 @@ void _androidManifest(_Options o) {
   manifest = manifest.replaceFirst(
     '<application',
     '<application\n'
-    '        android:dataExtractionRules="@xml/data_extraction_rules"\n'
-    '        android:fullBackupContent="@xml/backup_rules"',
+        '        android:dataExtractionRules="@xml/data_extraction_rules"\n'
+        '        android:fullBackupContent="@xml/backup_rules"',
   );
   File(path).writeAsStringSync(manifest);
   stdout.writeln('güncellendi: $path');
@@ -236,9 +326,9 @@ void _androidManifest(_Options o) {
   _writeFile(
     'android/app/src/main/res/xml/backup_rules.xml',
     '<?xml version="1.0" encoding="utf-8"?>\n'
-    '<full-backup-content>\n'
-    '    <exclude domain="sharedpref" path="FlutterSecureStorage"/>\n'
-    '</full-backup-content>\n',
+        '<full-backup-content>\n'
+        '    <exclude domain="sharedpref" path="FlutterSecureStorage"/>\n'
+        '</full-backup-content>\n',
     force: o.force,
   );
 }
@@ -250,7 +340,8 @@ void _gradleRelease(_Options o) {
   if (props.existsSync() &&
       !props.readAsStringSync().contains('kotlin.incremental')) {
     props.writeAsStringSync(
-        props.readAsStringSync() + 'kotlin.incremental=false\n');
+      '${props.readAsStringSync()}kotlin.incremental=false\n',
+    );
   }
   final path = 'android/app/build.gradle.kts';
   var gradle = _normalize(File(path).readAsStringSync());
@@ -259,29 +350,29 @@ void _gradleRelease(_Options o) {
   gradle = gradle.replaceFirst(
     'android {',
     'import java.util.Properties\n'
-    '\n'
-    'val keystoreProperties = Properties().apply {\n'
-    '    val file = rootProject.file("key.properties")\n'
-    '    if (file.exists()) file.inputStream().use { load(it) }\n'
-    '}\n'
-    'val admobAppId = keystoreProperties.getProperty(\n'
-    '    "admobAppId",\n'
-    '    "$_testAdmobAppIdAndroid",\n'
-    ')\n'
-    '\n'
-    'android {',
+        '\n'
+        'val keystoreProperties = Properties().apply {\n'
+        '    val file = rootProject.file("key.properties")\n'
+        '    if (file.exists()) file.inputStream().use { load(it) }\n'
+        '}\n'
+        'val admobAppId = keystoreProperties.getProperty(\n'
+        '    "admobAppId",\n'
+        '    "$_testAdmobAppIdAndroid",\n'
+        ')\n'
+        '\n'
+        'android {',
   );
 
   // Sürüm derlemesi: R8 küçültme + keep kuralları + key.properties imzası.
   gradle = gradle.replaceFirst(
     '        release {',
     '        release {\n'
-    '            isMinifyEnabled = true\n'
-    '            isShrinkResources = true\n'
-    '            proguardFiles(\n'
-    '                getDefaultProguardFile("proguard-android-optimize.txt"),\n'
-    '                "proguard-rules.pro",\n'
-    '            )',
+        '            isMinifyEnabled = true\n'
+        '            isShrinkResources = true\n'
+        '            proguardFiles(\n'
+        '                getDefaultProguardFile("proguard-android-optimize.txt"),\n'
+        '                "proguard-rules.pro",\n'
+        '            )',
   );
 
   if (o.ads) {
@@ -289,7 +380,7 @@ void _gradleRelease(_Options o) {
     gradle = gradle.replaceFirst(
       'defaultConfig {',
       'defaultConfig {\n'
-      '        manifestPlaceholders["admobAppId"] = admobAppId',
+          '        manifestPlaceholders["admobAppId"] = admobAppId',
     );
   }
 
@@ -299,12 +390,12 @@ void _gradleRelease(_Options o) {
   _writeFile(
     'android/app/proguard-rules.pro',
     "# WorkManager'ın Room veritabanı R8 tarafından silinmesin\n"
-    '# (ORTAK_UYGULAMA_STANDARDI.md 8).\n'
-    '-keep class androidx.work.impl.WorkDatabase { *; }\n'
-    '-keep class androidx.work.impl.WorkDatabase_Impl { *; }\n'
-    '-keep class androidx.work.impl.model.** { *; }\n'
-    '-keep class * extends androidx.work.ListenableWorker { *; }\n'
-    '-keep class androidx.room.** { *; }\n',
+        '# (ORTAK_UYGULAMA_STANDARDI.md 8).\n'
+        '-keep class androidx.work.impl.WorkDatabase { *; }\n'
+        '-keep class androidx.work.impl.WorkDatabase_Impl { *; }\n'
+        '-keep class androidx.work.impl.model.** { *; }\n'
+        '-keep class * extends androidx.work.ListenableWorker { *; }\n'
+        '-keep class androidx.room.** { *; }\n',
     force: o.force,
   );
 }
@@ -316,8 +407,10 @@ void _iosPlist(_Options o) {
     plist = plist.replaceFirst(
       '<dict>',
       '<dict>\n'
-      '\t<key>GADApplicationIdentifier</key>\n'
-      '\t<string>\$(ADMOB_APP_ID)</string>',
+          '\t<key>GADApplicationIdentifier</key>\n'
+          '\t<string>\$(ADMOB_APP_ID)</string>\n'
+          '\t<key>NSUserTrackingUsageDescription</key>\n'
+          '\t<string>Your permission helps us show relevant ads.</string>',
     );
     File(path).writeAsStringSync(plist);
     stdout.writeln('güncellendi: $path');
@@ -328,6 +421,15 @@ void _iosPlist(_Options o) {
       'ADMOB_APP_ID = $_testAdmobAppIdIos\n',
       force: o.force,
     );
+    for (final mode in ['Debug', 'Release']) {
+      final config = File('ios/Flutter/$mode.xcconfig');
+      if (config.existsSync() &&
+          !config.readAsStringSync().contains('AdsConfig.xcconfig')) {
+        config.writeAsStringSync(
+          '${config.readAsStringSync()}\n#include "AdsConfig.xcconfig"\n',
+        );
+      }
+    }
   }
 }
 
@@ -349,13 +451,20 @@ void _pubspec(_Options o) {
   if (o.ads) {
     deps.write(dep('napp_ads', _refFor(o.kitRef, 'ads')));
   }
-  final flutterBlock = ['dependencies:', '  flutter:', '    sdk: flutter', '']
-      .join('\n');
-  final localizationsDep = '  flutter_localizations:\n'
+  final flutterBlock = [
+    'dependencies:',
+    '  flutter:',
+    '    sdk: flutter',
+    '',
+  ].join('\n');
+  final localizationsDep =
+      '  flutter_localizations:\n'
       '    sdk: flutter\n';
   if (!pubspec.contains('napp_core:')) {
     pubspec = pubspec.replaceFirst(
-        flutterBlock, flutterBlock + deps.toString() + localizationsDep);
+      flutterBlock,
+      flutterBlock + deps.toString() + localizationsDep,
+    );
   }
 
   // Lokal geliştirme: --kit-path verilirse bağımlılıklar yerel kopyaya
@@ -372,7 +481,7 @@ void _pubspec(_Options o) {
     }
     pubspec = pubspec.replaceFirst(
       'dev_dependencies:',
-      overrides.toString() + 'dev_dependencies:',
+      '${overrides}dev_dependencies:',
     );
   }
 
@@ -383,37 +492,73 @@ void _pubspec(_Options o) {
 String _refFor(String coreRef, String package) =>
     coreRef.replaceFirst('core-', '$package-');
 
+/// JSON quoting also escapes dollar interpolation in generated Dart literals.
+String dartString(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
+
+/// Conditional blocks may nest; malformed templates fail before writing output.
+String renderTemplate(
+  String source,
+  Map<String, bool> flags,
+  Map<String, String> substitutions,
+) {
+  final out = StringBuffer();
+  final active = [true];
+  var cursor = 0;
+  for (final match in RegExp(r'@@IF_([A-Z_]+)@@|@@END@@').allMatches(source)) {
+    if (active.last) out.write(source.substring(cursor, match.start));
+    final flag = match.group(1);
+    if (flag != null) {
+      if (!flags.containsKey(flag)) {
+        throw StateError('unknown template flag: $flag');
+      }
+      active.add(active.last && flags[flag]!);
+    } else {
+      if (active.length == 1) throw StateError('unmatched template end');
+      active.removeLast();
+    }
+    cursor = match.end;
+  }
+  if (active.length != 1) throw StateError('unclosed template block');
+  out.write(source.substring(cursor));
+  var result = out.toString();
+  substitutions.forEach(
+    (token, value) => result = result.replaceAll(token, value),
+  );
+  if (result.contains('@@')) throw StateError('unresolved template token');
+  return result;
+}
+
 void _writeExampleFiles(_Options o) {
-  final mainTemplate =
-      File('tool/templates/main.dart.template').readAsStringSync();
-  final testTemplate =
-      File('tool/templates/app_test.dart.template').readAsStringSync();
+  final mainTemplate = File('tool/templates/main.dart.template')
+      .readAsStringSync();
+  final testTemplate = File('tool/templates/app_test.dart.template')
+      .readAsStringSync();
   final substitutions = <String, String>{
-    '@@APP_NAME@@': o.name,
+    '@@APP_NAME@@': dartString(o.name),
     '@@PACKAGE_NAME@@': o.packageName,
     '@@PROJECT_NAME@@': o.projectName,
     '@@PRODUCT_ID@@': o.productId,
+    '@@PURCHASE_PRODUCTS@@':
+        '${o.lifetime ? "productId: '${o.projectName}_pro_lifetime'," : ''}\n'
+        '${o.monthly ? "subscriptionProductId: '${o.projectName}_pro_monthly'," : ''}',
+    '@@BANNER@@': '${o.banner}',
+    '@@REWARDED@@': '${o.rewarded}',
+    '@@APP_OPEN@@': '${o.appOpen}',
+    '@@INTERSTITIAL@@': '${o.interstitial}',
   };
-  String render(String source) {
-    var out = source;
-    substitutions.forEach((token, value) => out = out.replaceAll(token, value));
-    // Koşullu bloklar: seçenek kapalıysa satırları çıkar.
-    for (final flag in ['pro', 'ads']) {
-      final enabled = flag == 'pro' ? o.pro : o.ads;
-      final open = '@@IF_${flag.toUpperCase()}@@';
-      final close = '@@END@@';
-      while (out.contains(open)) {
-        final start = out.indexOf(open);
-        final end = out.indexOf(close, start);
-        if (end < 0) break;
-        final inner = out.substring(start + open.length, end);
-        out = out.replaceRange(start, end + close.length, enabled ? inner : '');
-      }
-    }
-    return out;
-  }
+  String render(String source) => renderTemplate(source, {
+    'PRO': o.pro,
+    'ADS': o.ads,
+    'MONTHLY': o.monthly,
+    'MONTHLY_ONLY': o.monthly && !o.lifetime,
+    'BOTH': o.monthly && o.lifetime,
+    'OTHER_APPS': o.otherApps,
+    'REWARDED': o.rewarded,
+    'BANNER': o.banner,
+  }, substitutions);
 
-  _writeFile('lib/main.dart', render(mainTemplate), force: o.force);
+  // These two paths were created by this invocation after the fresh-app guard.
+  _writeFile('lib/main.dart', render(mainTemplate), force: true);
   final staleTest = File('test/widget_test.dart');
   if (staleTest.existsSync()) staleTest.deleteSync();
   _writeFile('test/app_test.dart', render(testTemplate), force: o.force);
@@ -425,16 +570,18 @@ void _writeExampleFiles(_Options o) {
   _writeFile(
     'android/key.properties.example',
     'storeFile=XXXX.jks\n'
-    'storePassword=XXXX\n'
-    'keyAlias=XXXX\n'
-    'keyPassword=XXXX\n'
-    'admobAppId=ca-app-pub-XXXX~XXXX\n',
+        'storePassword=XXXX\n'
+        'keyAlias=XXXX\n'
+        'keyPassword=XXXX\n'
+        'admobAppId=ca-app-pub-XXXX~XXXX\n',
     force: o.force,
   );
 }
 
 void _projectBrain(_Options o) {
-  final adsRow = o.ads ? 'bölüm 5.2 uygulanır' : 'hiçbir reklam paketi eklenmez';
+  final adsRow = o.ads
+      ? 'bölüm 5.2 uygulanır'
+      : 'hiçbir reklam paketi eklenmez';
   final proRow = o.pro
       ? 'bölüm 5.1 uygulanır; ürün kimliği: ${o.productId}'
       : 'satın alma paketi eklenmez';
@@ -442,37 +589,38 @@ void _projectBrain(_Options o) {
   _writeFile(
     'PROJECT_BRAIN.md',
     '# PROJECT BRAIN — ${o.name}\n'
-    '\n'
-    '> **Status:** şablon kuruldu (tool/new_app.dart); geliştirme başlıyor\n'
-    '> **Phase:** BUILD · **Next:** T2 · **Updated:** '
-    '${DateTime.now().toIso8601String().substring(0, 10)} · **Synced@:** none\n'
-    '> **Goal:** v1 #PENDING · **Goal status:** DRAFT\n'
-    '\n'
-    '## 0. PROJE AYARLARI (ORTAK_UYGULAMA_STANDARDI.md bölüm 0)\n'
-    '\n'
-    '| Ayar | Değer | Anlamı |\n'
-    '|---|---|---|\n'
-    '| **REKLAM** | `${o.ads ? 'EVET' : 'HAYIR'}` | $adsRow |\n'
-    '| **PRO (ömür boyu)** | `${o.pro ? 'EVET' : 'HAYIR'}` | $proRow |\n'
-    '| **VERİ** | `${o.dataLabel}` | $dataRow |\n'
-    '\n'
-    '## 1. GOAL\n'
-    '\n'
-    '(Doldurun: uygulamanın amacı, kabul kriterleri, kısıtlar.)\n'
-    '\n'
-    '## 2. TARGET ARCHITECTURE\n'
-    '\n'
-    '(Projeye özel mimari: napp paketleri + uygulamanızın katmanları.)\n'
-    '\n'
-    '## 3. CURRENT ARCHITECTURE\n'
-    '\n'
-    '${o.name} şablonu: napp_core (${o.pro ? '+ napp_pro, ' : ''}'
-    '${o.ads ? '+ napp_ads, ' : ''}dart-define ile AppIdentity), tema,\n'
-    'çok dil, kalıcı ayarlar.\n'
-    '\n'
-    '## 4. FILE MAP / 5. TASKS / 6. DECISION LOG / 7. HANDOFF\n'
-    '\n'
-    '(project-brain protokolü: PROJECT_BRAIN.md şablonuna bakın.)\n',
+        '\n'
+        '> **Status:** şablon kuruldu (tool/new_app.dart); geliştirme başlıyor\n'
+        '> **Phase:** BUILD · **Next:** T2 · **Updated:** '
+        '${DateTime.now().toIso8601String().substring(0, 10)} · **Synced@:** none\n'
+        '> **Goal:** v1 #PENDING · **Goal status:** DRAFT\n'
+        '\n'
+        '## 0. PROJE AYARLARI (ORTAK_UYGULAMA_STANDARDI.md bölüm 0)\n'
+        '\n'
+        '| Ayar | Değer | Anlamı |\n'
+        '|---|---|---|\n'
+        '| **REKLAM** | `${o.ads ? 'EVET' : 'HAYIR'}` | $adsRow |\n'
+        '| **PRO (${o.monthly ? 'monthly' : 'ömür boyu'})** | `${o.pro ? 'EVET' : 'HAYIR'}` | $proRow |\n'
+        '${o.monthly ? '\nMonthly production BLOCKED: trusted receipt verifier and store products required.\n' : ''}'
+        '| **VERİ** | `${o.dataLabel}` | $dataRow |\n'
+        '\n'
+        '## 1. GOAL\n'
+        '\n'
+        '(Doldurun: uygulamanın amacı, kabul kriterleri, kısıtlar.)\n'
+        '\n'
+        '## 2. TARGET ARCHITECTURE\n'
+        '\n'
+        '(Projeye özel mimari: napp paketleri + uygulamanızın katmanları.)\n'
+        '\n'
+        '## 3. CURRENT ARCHITECTURE\n'
+        '\n'
+        '${o.name} şablonu: napp_core (${o.pro ? '+ napp_pro, ' : ''}'
+        '${o.ads ? '+ napp_ads, ' : ''}dart-define ile AppIdentity), tema,\n'
+        'çok dil, kalıcı ayarlar.\n'
+        '\n'
+        '## 4. FILE MAP / 5. TASKS / 6. DECISION LOG / 7. HANDOFF\n'
+        '\n'
+        '(project-brain protokolü: PROJECT_BRAIN.md şablonuna bakın.)\n',
     force: o.force,
   );
 }

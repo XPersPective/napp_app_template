@@ -1,71 +1,102 @@
-import 'dart:async';
-
-import 'package:flutter/material.dart';
+@@IF_ADS@@import 'dart:async';
+@@END@@import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-
 import 'package:napp_core/napp_core.dart';
 @@IF_PRO@@import 'package:napp_pro/napp_pro.dart';
 @@END@@@@IF_ADS@@import 'package:napp_ads/napp_ads.dart';
 @@END@@
-// Gizli degerler KODA YAZILMAZ; derlemede --dart-define ile verilir (1.2).
+// Product-specific public links must be supplied before store release.
 const contactEmail = String.fromEnvironment('CONTACT_EMAIL');
 const privacyUrl = String.fromEnvironment('PRIVACY_URL',
     defaultValue: 'https://example.com/privacy');
 const sourceUrl = String.fromEnvironment('SOURCE_URL',
     defaultValue: 'https://github.com/XPersPective/@@PROJECT_NAME@@');
-// "Kesfet" sekmesi (ORTAK 3.6): gelistiricinin diger uygulamalari bu ortak
-// katalogdan okunur; yeni uygulama yayina girince yalnizca napp_apps'e eklenir.
 const otherAppsUrl = String.fromEnvironment('OTHER_APPS_URL',
     defaultValue:
         'https://raw.githubusercontent.com/XPersPective/napp_apps/HEAD/apps.json');
-
+@@IF_ADS@@const bannerEnabled = @@BANNER@@;
+const rewardedEnabled = @@REWARDED@@;
+const appOpenEnabled = @@APP_OPEN@@;
+const interstitialEnabled = @@INTERSTITIAL@@;
+@@END@@
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final store = await SettingsStore.load();
   final themeModeController = ThemeModeController(store: store)..load();
-  final identity = AppIdentity(
-    appName: '@@APP_NAME@@',
+  final localeController = LocaleController(store: store)..load();
+  var translations = await NappTranslations.loadCore();
+@@IF_PRO@@  translations = await ProLocalization.load(base: translations);
+@@END@@  final identity = AppIdentity(
+    appName: @@APP_NAME@@,
     packageName: '@@PACKAGE_NAME@@',
     sourceUrl: sourceUrl,
     privacyPolicyUrl: privacyUrl,
     contactEmail: contactEmail.isEmpty ? 'hello@example.com' : contactEmail,
     otherAppsUrl: otherAppsUrl,
-    sloganKey: 'app.slogan',
   );
 @@IF_PRO@@  final repository = PurchaseRepository(
     adapter: InAppPurchaseAdapter(),
-    productId: '@@PRODUCT_ID@@',
-  );
-  final proController = ProController(store: store, repository: repository)
-    ..load();
+    @@PURCHASE_PRODUCTS@@
+@@IF_MONTHLY@@    // BLOCKED: supply a trusted SubscriptionVerifier before enabling purchases.
+    // No fake verifier; monthly never becomes a persisted lifetime grant.
+@@END@@  );
+  final proController = ProController(store: store, repository: repository)..load();
   proController.startListening();
-@@END@@@@IF_ADS@@  final policy = AdPolicy();
+@@END@@@@IF_ADS@@  final adsAdapter = await SharedPreferencesAdapter.create();
+  final policy = AdPolicy();
+  final saved = AdPolicyPersistence.load(adsAdapter);
+  if (saved != null) policy.restore(saved);
+  policy.setOnboardingCompleted(true);
+  policy.startSession(DateTime.now());
+  await AdPolicyPersistence.save(adsAdapter, policy);
   final bannerController = BannerAdController(policy: policy);
-  final rewardedManager = RewardedAdManager(policy: policy);
-  final interstitialManager = InterstitialAdManager(policy: policy);
-  final appOpenManager = AppOpenAdManager(policy: policy);
-  unawaited(() async {
-    final ready = await ConsentManager.initialize();
-    if (!ready) return;
-    policy.setSdkReady(true);
-    bannerController.load();
-    await rewardedManager.load();
-    await interstitialManager.load();
-    if (policy.canShowAppOpen(DateTime.now())) {
-      await appOpenManager.tryLoad(DateTime.now());
-      await appOpenManager.showIfAvailable();
+  void savePolicy() => unawaited(AdPolicyPersistence.save(adsAdapter, policy));
+  final rewardedManager = RewardedAdManager(policy: policy, onPolicyChanged: savePolicy);
+  final appOpenManager = AppOpenAdManager(policy: policy, onPolicyChanged: savePolicy);
+  var initializingAds = false;
+  var coldStart = true;
+  Future<void> initializeAds() async {
+    if (policy.isPro) {
+      coldStart = false; // Expiry resumes banner/rewarded, never a mid-session app-open.
+      return;
     }
-  }());
+    if (initializingAds) return;
+    initializingAds = true;
+    try {
+      final ready = await ConsentManager.initialize();
+      if (!ready || policy.isPro) return;
+      policy.setSdkReady(true);
+      if (bannerEnabled) bannerController.load();
+      if (rewardedEnabled) await rewardedManager.load();
+      if (coldStart && appOpenEnabled && policy.canShowAppOpen(DateTime.now())) {
+        await appOpenManager.tryLoad(DateTime.now());
+        await appOpenManager.showIfAvailable();
+      }
+    } finally {
+      initializingAds = false;
+      coldStart = false;
+    }
+  }
+@@IF_PRO@@  void syncPro() {
+    policy.setPro(proController.isPro);
+    bannerController.onProChanged();
+    if (!policy.isPro) unawaited(initializeAds());
+  }
+  policy.setPro(proController.isPro);
+  proController.addListener(syncPro);
+@@END@@  unawaited(initializeAds());
 @@END@@  WidgetsBinding.instance.addObserver(SettingsLifecycleObserver(store));
   runApp(NappApp(
     identity: identity,
-    themeModeController: themeModeController,@@IF_PRO@@
+    translations: translations,
+    themeModeController: themeModeController,
+    localeController: localeController,@@IF_PRO@@
     proController: proController,
     repository: repository,@@END@@@@IF_ADS@@
     policy: policy,
     bannerController: bannerController,
     rewardedManager: rewardedManager,
-    interstitialManager: interstitialManager,@@END@@
+    adsAdapter: adsAdapter,@@END@@
   ));
 }
 
@@ -73,48 +104,56 @@ class NappApp extends StatelessWidget {
   const NappApp({
     super.key,
     required this.identity,
-    required this.themeModeController,@@IF_PRO@@
+    required this.translations,
+    required this.themeModeController,
+    required this.localeController,@@IF_PRO@@
     required this.proController,
     required this.repository,@@END@@@@IF_ADS@@
     required this.policy,
     required this.bannerController,
     required this.rewardedManager,
-    required this.interstitialManager,@@END@@
+    required this.adsAdapter,@@END@@
   });
 
   final AppIdentity identity;
-  final ThemeModeController themeModeController;@@IF_PRO@@
+  final NappTranslations translations;
+  final ThemeModeController themeModeController;
+  final LocaleController localeController;@@IF_PRO@@
   final ProController proController;
   final PurchaseRepository repository;@@END@@@@IF_ADS@@
   final AdPolicy policy;
   final BannerAdController bannerController;
   final RewardedAdManager rewardedManager;
-  final InterstitialAdManager interstitialManager;@@END@@
+  final PreferenceAdapter adsAdapter;@@END@@
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([themeModeController@@IF_PRO@@, proController@@END@@]),
+      animation: Listenable.merge([themeModeController, localeController@@IF_PRO@@, proController@@END@@]),
       builder: (context, _) => MaterialApp(
         title: identity.appName,
         theme: AppTheme.light(brandColor: identity.brandColor),
         darkTheme: AppTheme.dark(brandColor: identity.brandColor),
         themeMode: themeModeController.mode,
+        locale: localeController.locale,
         localizationsDelegates: [
-          NappLocalizationsDelegate(NappTranslations({})),
+          NappLocalizationsDelegate(translations),
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
         ],
-        supportedLocales: const [Locale('tr'), Locale('en')],
+        supportedLocales: translations.supportedLocales(),
         home: HomePage(
-          identity: identity,@@IF_PRO@@
+          identity: identity,
+          themeModeController: themeModeController,
+          localeController: localeController,
+          translations: translations,@@IF_PRO@@
           proController: proController,
           repository: repository,@@END@@@@IF_ADS@@
           policy: policy,
           bannerController: bannerController,
           rewardedManager: rewardedManager,
-          interstitialManager: interstitialManager,@@END@@
+          adsAdapter: adsAdapter,@@END@@
         ),
       ),
     );
@@ -124,74 +163,120 @@ class NappApp extends StatelessWidget {
 class HomePage extends StatelessWidget {
   const HomePage({
     super.key,
-    required this.identity,@@IF_PRO@@
+    required this.identity,
+    required this.themeModeController,
+    required this.localeController,
+    required this.translations,@@IF_PRO@@
     required this.proController,
     required this.repository,@@END@@@@IF_ADS@@
     required this.policy,
     required this.bannerController,
     required this.rewardedManager,
-    required this.interstitialManager,@@END@@
+    required this.adsAdapter,@@END@@
   });
 
-  final AppIdentity identity;@@IF_PRO@@
+  final AppIdentity identity;
+  final ThemeModeController themeModeController;
+  final LocaleController localeController;
+  final NappTranslations translations;@@IF_PRO@@
   final ProController proController;
   final PurchaseRepository repository;@@END@@@@IF_ADS@@
   final AdPolicy policy;
   final BannerAdController bannerController;
   final RewardedAdManager rewardedManager;
-  final InterstitialAdManager interstitialManager;@@END@@
+  final PreferenceAdapter adsAdapter;@@END@@
 
   @override
   Widget build(BuildContext context) {
     final l10n = NappLocalizations.of(context);
-    final body = Center(child: Text(l10n.aboutTitle));
-    final actions = <Widget>[@@IF_ADS@@
-      GiftFlow(
-        policy: policy,
-        rewardedManager: rewardedManager,
-        onRewardEarned: () =>
-            proController.grantTemporaryPro(const Duration(hours: 24)),
-      ),@@END@@
-    ];
     return Scaffold(
-      appBar: AppBar(title: Text(identity.appName), actions: actions),
-      body: body,
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [@@IF_ADS@@
-          BannerAdWidget(controller: bannerController),@@END@@
-          NavigationBar(
-            selectedIndex: 0,
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.home_outlined),
-                selectedIcon: Icon(Icons.home),
-                label: 'Ana sayfa',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.explore_outlined),
-                selectedIcon: Icon(Icons.explore),
-                label: 'Kesfet',
-              ),
-            ],
-            onDestinationSelected: (index) {
-              if (index == 1) _openDiscover(context);
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Diger uygulamalarimiz: simge + kisa aciklama; dokununca Play / App Store.
-  void _openDiscover(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => OtherAppsPage(
-          identity: identity,
-          repository: OtherAppsRepository(appsUrl: otherAppsUrl),
+      appBar: AppBar(title: Text(identity.appName), actions: [@@IF_REWARDED@@
+        GiftFlow(
+          policy: policy,
+          rewardedManager: rewardedManager,
+          onRewardEarned: () {
+            proController.grantTemporaryPro(const Duration(hours: 24));
+            unawaited(AdPolicyPersistence.save(adsAdapter, policy));
+          },
+        ),@@END@@
+        IconButton(
+          tooltip: l10n.aboutTitle,
+          icon: const Icon(Icons.info_outline),
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+            builder: (_) => AboutPage(identity: identity),
+          )),
         ),
-      ),
+      ]),
+      body: ListView(
+        children: [
+          BrandLockup(identity: identity@@IF_PRO@@, showProBadge: proController.isPro@@END@@),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(l10n.settingsAppearance),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, children: [
+                for (final mode in ThemeMode.values)
+                  ChoiceChip(
+                    label: Text(switch (mode) {
+                      ThemeMode.light => l10n.themeModeLight,
+                      ThemeMode.dark => l10n.themeModeDark,
+                      ThemeMode.system => l10n.themeModeSystem,
+                    }),
+                    selected: themeModeController.mode == mode,
+                    onSelected: (_) => themeModeController.setMode(mode),
+                  ),
+              ]),
+            ]),
+          ),
+          ListTile(
+            leading: const Icon(Icons.language),
+            title: Text(l10n.settingsLanguage),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => LanguagePickerPage(
+                localeController: localeController,
+                translations: translations,
+              ),
+            )),
+          ),@@IF_ADS@@
+          ListTile(
+            leading: const Icon(Icons.privacy_tip_outlined),
+            title: Text(l10n.aboutPrivacy),
+            onTap: () async {
+              try {
+                await ConsentManager.showPrivacyOptions();
+              } catch (_) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(l10n.commonErrorGeneric)));
+                }
+              }
+            },
+          ),@@END@@@@IF_PRO@@
+          ListTile(
+            leading: const Icon(Icons.workspace_premium_outlined),
+            title: Text('${identity.appName} Pro'),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => PaywallPage(
+                identity: identity,
+                controller: proController,
+                repository: repository,
+              ),
+            )),
+          ),@@END@@
+@@IF_OTHER_APPS@@          ListTile(
+            leading: const Icon(Icons.explore_outlined),
+            title: Text(l10n.otherAppsTitle),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => OtherAppsPage(
+                identity: identity,
+                repository: OtherAppsRepository(appsUrl: otherAppsUrl),
+              ),
+            )),
+          ),@@END@@
+        ],
+      ),@@IF_BANNER@@
+      bottomNavigationBar: BannerAdWidget(controller: bannerController),@@END@@
     );
   }
 }
