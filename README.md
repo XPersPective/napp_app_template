@@ -1,8 +1,9 @@
 # napp_app_template
 
 Existing CrazyPenguin Flutter starter, repaired and locally verified for AI App Factory.
-Keep this repository as a template; generate only in a new copy. Existing lib/main.dart,
-pubspec.yaml, android or ios makes the generator refuse before mutation, even --force.
+Keep this repository as a template; generate only in a new copy. Existing lib,
+pubspec.yaml or ios, and any Android content beyond the tracked regular
+key.properties.example file, is refused before mutation, even --force.
 
 Run in the new copy:
 

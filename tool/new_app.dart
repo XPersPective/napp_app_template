@@ -23,9 +23,25 @@ String _normalize(String text) => text.replaceAll(
 
 Future<void> main(List<String> args) async {
   final options = _Options.parse(args);
-  if (['lib/main.dart', 'pubspec.yaml', 'android', 'ios'].any(
-    (path) => FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound,
-  )) {
+  final androidType = FileSystemEntity.typeSync('android', followLinks: false);
+  final existingAndroid =
+      androidType != FileSystemEntityType.notFound &&
+      (androidType != FileSystemEntityType.directory ||
+          Directory('android')
+              .listSync(followLinks: false)
+              .any(
+                (entry) =>
+                    entry.path.replaceAll('\\', '/') !=
+                        'android/key.properties.example' ||
+                    FileSystemEntity.typeSync(entry.path, followLinks: false) !=
+                        FileSystemEntityType.file,
+              ));
+  if (existingAndroid ||
+      ['lib', 'pubspec.yaml', 'ios'].any(
+        (path) =>
+            FileSystemEntity.typeSync(path, followLinks: false) !=
+            FileSystemEntityType.notFound,
+      )) {
     throw UsageException(
       'Refusing existing app: use a fresh template copy. '
       '--force never bypasses this guard.',

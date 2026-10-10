@@ -19,3 +19,4 @@ VERIFIED: Fresh-copy generator validates options, renders nested conditionals an
 
 ## Migration
 VERIFIED: blank legacy goal retained; factory extension explicitly authorized by current user.
+- Fresh-copy guard permits the single regular android/key.properties.example placeholder; unfamiliar Android entries, links and existing lib/pubspec/ios are protected. Seven placeholder-mode analyze/test and mutation-free rerun checks pass.

@@ -67,6 +67,9 @@ Future<void> main(List<String> args) async {
       );
     }
     app.createSync(recursive: true);
+    Directory('${app.path}/android').createSync();
+    File('${app.path}/android/key.properties.example')
+        .writeAsStringSync('# starter signing placeholder; no real credentials');
     Directory('${app.path}/tool/templates').createSync(recursive: true);
     for (final path in [
       'tool/new_app.dart',
